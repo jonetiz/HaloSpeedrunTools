@@ -1,0 +1,22 @@
+﻿<Window x:Class="HaloSpeedrunTools.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:StubStuff"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing" Topmost="True" ResizeMode="NoResize">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="65*"/>
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <TextBlock x:Name="gametext" HorizontalAlignment="Left" Height="28" Margin="10,10,0,0" TextWrapping="Wrap" Text="Game: No" VerticalAlignment="Top" Width="100"/>
+        <TextBlock x:Name="leveltext" HorizontalAlignment="Left" Height="28" Margin="115,10,0,0" TextWrapping="Wrap" Text="Levelcode: " VerticalAlignment="Top" Width="100"/>
+        <Button x:Name="recordingButton" HorizontalAlignment="Center" Margin="10,70,583,329"  Width="189" Content="Start Recording" Click="StartRecording_Click" IsEnabled="False" Height="22"/>
+        <Button x:Name="connectOBSButton" HorizontalAlignment="Center" Margin="10,43,583,356"  Width="184" Content="Connect to OBS" Click="ConnectOBS_Click" Height="22"/>
+        <PasswordBox x:Name="wsPasswordField" HorizontalAlignment="Left" Height="20" Margin="204,45,0,0" VerticalAlignment="Top" Width="150"/>
+    </Grid>
+</Window>
