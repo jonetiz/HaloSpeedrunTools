@@ -17,7 +17,6 @@ This application is meant to deliver multiple useful quality-of-life tools for H
 - Stream Assets such as Speedometer
 
 ## Dependencies
-*All dependencies listed here are included in the project itself*.
 - [.NET Framework 4.7.2](https://dotnet.microsoft.com/download/dotnet-framework/net472)
 - [obs-websocket](https://github.com/Palakis/obs-websocket/releases/tag/4.9.0)
 
