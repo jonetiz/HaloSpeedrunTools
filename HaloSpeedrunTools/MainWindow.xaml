@@ -5,18 +5,34 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:StubStuff"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800"
+        Title="Halo Speedrun Toolkit (Development Build)" Height="250.667" Width="800"
         Loaded="Window_Loaded"
-        Closing="Window_Closing" Topmost="True" ResizeMode="NoResize">
+        Closing="Window_Closing" ResizeMode="NoResize">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="65*"/>
             <ColumnDefinition/>
         </Grid.ColumnDefinitions>
-        <TextBlock x:Name="gametext" HorizontalAlignment="Left" Height="28" Margin="10,10,0,0" TextWrapping="Wrap" Text="Game: No" VerticalAlignment="Top" Width="100"/>
-        <TextBlock x:Name="leveltext" HorizontalAlignment="Left" Height="28" Margin="115,10,0,0" TextWrapping="Wrap" Text="Levelcode: " VerticalAlignment="Top" Width="100"/>
-        <Button x:Name="recordingButton" HorizontalAlignment="Center" Margin="10,70,583,329"  Width="189" Content="Start Recording" Click="StartRecording_Click" IsEnabled="False" Height="22"/>
-        <Button x:Name="connectOBSButton" HorizontalAlignment="Center" Margin="10,43,583,356"  Width="184" Content="Connect to OBS" Click="ConnectOBS_Click" Height="22"/>
-        <PasswordBox x:Name="wsPasswordField" HorizontalAlignment="Left" Height="20" Margin="204,45,0,0" VerticalAlignment="Top" Width="150"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="32"/>
+            <RowDefinition Height="50"/>
+            <RowDefinition Height="50"/>
+            <RowDefinition Height="57"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="gametext" Grid.Row="0" HorizontalAlignment="Left" Height="28" TextWrapping="Wrap" Text="Game ID: No" VerticalAlignment="Top" Width="100" Margin="10,5,0,0"/>
+        <TextBlock x:Name="levelText" Grid.Row="0" HorizontalAlignment="Left" Height="28" TextWrapping="Wrap" Text="Level Name:" VerticalAlignment="Top" Width="305" Margin="115,5,0,0"/>
+        <TextBlock x:Name="resetCounterText" Grid.Row="0" HorizontalAlignment="Left" Height="28"  TextWrapping="Wrap" Text="ResetCounter:" VerticalAlignment="Top" Width="100" Margin="425,5,0,0"/>
+
+        <PasswordBox x:Name="wsPasswordField" HorizontalAlignment="Left" Height="20" VerticalAlignment="Top" Width="200" Margin="10,5,0,0" Grid.Row="1"/>
+        <CheckBox x:Name="recordILBox" VerticalAlignment="Center" Content="Record ILs?" Margin="215,6,418,10" Grid.Row="1" Height="16"/>
+        <TextBlock x:Name="stateText" HorizontalAlignment="Left" Height="20" TextWrapping="Wrap" Text="StateIndicator:" VerticalAlignment="Top" Width="220" Margin="425,17,0,0" Grid.Row="3"/>
+        <TextBlock x:Name="tickText" HorizontalAlignment="Left" Height="20" TextWrapping="Wrap" Text="Ticks:" Width="220" Margin="425,13,0,0" Grid.Row="2" VerticalAlignment="Top"/>
+        <TextBlock x:Name="igtText" HorizontalAlignment="Left" Height="20" TextWrapping="Wrap" Text="IGT:" VerticalAlignment="Top" Width="220" Margin="425,6,0,0" Grid.Row="1"/>
+        <CheckBox x:Name="saveIncompleteBox" VerticalAlignment="Center" Content="Save Incomplete ILs?" Margin="215,17,418,17" Grid.Row="2" Height="16"/>
+        <Button x:Name="connectOBSButton" Content="Connect to OBS" Click="ConnectOBS_Click" Margin="10,7,572,8" Grid.Row="3"/>
+        <Button x:Name="installOBSWS" Content="Install OBS Websocket" Click="installOBSWS_Click" Margin="10,6,572,9" Grid.Row="2" Height="35"/>
     </Grid>
 </Window>

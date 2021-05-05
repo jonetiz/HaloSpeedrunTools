@@ -12,7 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-using System.Windows.Forms;
+using System.Threading;
 using System.ComponentModel; //for canceleventargs
 using System.Security.Principal; //used for checking if we have admin privs
 using Newtonsoft.Json;
@@ -56,6 +56,8 @@ namespace HaloSpeedrunTools
             //can set default values but that's optional
 
             public string wsPassword;
+            public bool? RecordILs = false;
+            public bool? SaveIncompleteILs = false;
 
         }
 
@@ -75,6 +77,7 @@ namespace HaloSpeedrunTools
             public static IntPtr GlobalProcessHandle;
             public static IntPtr BaseAddress;
             public static string AttachedGame = "No"; //No, Mn (menu), HR, H1, H2, H3, OD (ODST), H4
+            public static string StateIndicator;
             public static string AttachedLevel;
 
             //control stuff
@@ -85,11 +88,14 @@ namespace HaloSpeedrunTools
             public static bool GotBaseAddress = false;
             public static int mainloopcounter = 0;
 
+            public static bool OBSConnected = false;
 
             //our actually useful ingame values we'll keep track of
             public static int CurrentTickCount;
+            public static string CurrentIGT;
+            public static int CurrentIGTs;
 
-
+            public static int ResetCounter = 0;
 
         }
 
@@ -124,6 +130,17 @@ namespace HaloSpeedrunTools
 
             public int[][] H1_CheckString;
             public int[][] H1_TickCounter;
+            public int[][] H2_TickCounter;
+            public int[][] H3_TickCounter;
+            public int[][] H4_TickCounter;
+            public int[][] HR_TickCounter;
+            public int[][] OD_TickCounter;
+
+            public int[][] H2_IGT;
+            public int[][] H3_IGT;
+            public int[][] H4_IGT;
+            public int[][] HR_IGT;
+            public int[][] OD_IGT;
 
         }
 
@@ -229,6 +246,8 @@ namespace HaloSpeedrunTools
             //now let's set internal variables corrosponding to the config we loaded
 
             wsPasswordField.Password = GlobalVars.SavedConfig.wsPassword;
+            recordILBox.IsChecked = GlobalVars.SavedConfig.RecordILs;
+            saveIncompleteBox.IsChecked = GlobalVars.SavedConfig.SaveIncompleteILs;
 
 
 
@@ -239,7 +258,7 @@ namespace HaloSpeedrunTools
             //if we want to use a very short period on this (eg 30ms), it's possible to run into issues like our ui locking up. DistpacherTimer runs on the same thread as wpf ui stuff, so our mainloop needs to finish processing relatively quickly so we can handle mouse inputs and etc.
             //if we wanted to avoid this we could use System.Threading.Timer or System.Timers.Timer, but then we'd have to worry about multithreading issues which is a PITA I can't be bothered about
             DispatcherTimer dtClockTime = new DispatcherTimer();
-            dtClockTime.Interval = new TimeSpan(0, 0, 0, 0, 30); //in days, Hours, Minutes, Second, milliseconds.
+            dtClockTime.Interval = new TimeSpan(0, 0, 0, 0, 33); //in days, Hours, Minutes, Second, milliseconds.
             dtClockTime.Tick += mainloop;
             dtClockTime.Start();
 
@@ -255,6 +274,8 @@ namespace HaloSpeedrunTools
             //gotta set the savedconfig vars to what they should be, then we'll save them to file with WriteConfig.
 
             GlobalVars.SavedConfig.wsPassword = wsPasswordField.Password;
+            GlobalVars.SavedConfig.RecordILs = recordILBox.IsChecked;
+            GlobalVars.SavedConfig.SaveIncompleteILs = saveIncompleteBox.IsChecked;
             WriteConfig();
         }
 
@@ -327,7 +348,7 @@ namespace HaloSpeedrunTools
             catch
             {
                 myProcess = null;
-               // Console.WriteLine("mcc process didn't exist at previous ID");
+                // Console.WriteLine("mcc process didn't exist at previous ID");
             }
 
 
@@ -351,7 +372,7 @@ namespace HaloSpeedrunTools
                     }
                     catch
                     {
-                       // Console.WriteLine("Didn't find mcc with name: " + processname);
+                        // Console.WriteLine("Didn't find mcc with name: " + processname);
                         return false;
                     }
                 }
@@ -422,7 +443,7 @@ namespace HaloSpeedrunTools
                         client.DefaultRequestHeaders.Add("User-Agent",
                             "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; WOW64; Trident/6.0)");
 
-                        using (var response = client.GetAsync("https://api.github.com/repos/Burnt-o/StubStuff/commits?path=StubStuff/offsets/" + GlobalVars.MCCversion + ".json").Result)
+                        using (var response = client.GetAsync("https://api.github.com/repos/x-e-r-o/HaloSpeedrunTools/commits?path=HaloSpeedrunTools/offsets/" + GlobalVars.MCCversion + ".json").Result)
                         {
                             var json = response.Content.ReadAsStringAsync().Result;
 
@@ -466,7 +487,7 @@ namespace HaloSpeedrunTools
                     //here's the fun
                     try
                     {
-                        String url = "https://raw.githubusercontent.com/Burnt-o/StubStuff/master/StubStuff/offsets/" + GlobalVars.MCCversion + ".json";
+                        String url = "https://raw.githubusercontent.com/x-e-r-o/HaloSpeedrunTools/master/HaloSpeedrunTools/offsets/" + GlobalVars.MCCversion + ".json";
                         System.Net.WebClient client = new System.Net.WebClient();
                         String json = client.DownloadString(url);
                         System.IO.File.WriteAllText("offsets\\" + GlobalVars.MCCversion + ".json", json);
@@ -601,8 +622,8 @@ namespace HaloSpeedrunTools
 
 
             //But.. I'm gonna add some logic for helping to keep track of whether MCC is in a game (& which game) vs in a menu, etc. 
-            //now we don't really need to bother checking this super frequently, so we'll have a counter, and only run this every 100th iteration of mainloop. 
-            if (GlobalVars.mainloopcounter < 100)
+            //now we don't really need to bother checking this super frequently, so we'll have a counter, and only run this every 5th iteration of mainloop (about six times per second). 
+            if (GlobalVars.mainloopcounter < 5)
             {
                 GlobalVars.mainloopcounter += 1;
             }
@@ -610,12 +631,6 @@ namespace HaloSpeedrunTools
             {
                 GlobalVars.mainloopcounter = 0;
 
-                //now let's do our logic!
-                //we'll read what I call the "gameindicator", a simple byte value. 0 is for ce, 6 is for reach etc. 
-                //but this gameindicator doesn't update when we quit to the menu, only when we load into a game. on booting MCC it defaults to 0.
-                //so we'll also need to read the "menuindicator" to check if we're in a menu or not and update our value there.
-
-                //first the gameindicator logic
                 byte[] buffer = new byte[1];
                 if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.gameindicator[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer, buffer.Length, out int bytesRead))
                 //bit overwhelming isn't it? I'll explain more how ReadProcessMemory works in our GetMCCValues later on, for now,
@@ -649,7 +664,7 @@ namespace HaloSpeedrunTools
                             break;
 
                     }
-                    Console.WriteLine("gameindicator is: " + buffer[0]);
+                    //Console.WriteLine("gameindicator is: " + buffer[0]);
                 }
                 else //means reading the gameindicator failed
                 {
@@ -663,7 +678,7 @@ namespace HaloSpeedrunTools
                 //then the menuindicator logic
                 if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.menuindicator[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer, buffer.Length, out int bytesRead2))
                 {
-                    Console.WriteLine("menu indicator is: " + buffer[0]);
+                    //Console.WriteLine("menu indicator is: " + buffer[0]);
                     if (buffer[0] != 0x07)
                         GlobalVars.AttachedGame = "Mn";
 
@@ -674,6 +689,40 @@ namespace HaloSpeedrunTools
                     return;
                 }
 
+                //stateindicator logic
+                if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.stateindicator[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer, buffer.Length, out int bytesRead3))
+                {
+                    //Console.WriteLine("state indicator is: " + buffer[0]);
+                    switch (buffer[0])
+                    {
+                        case 255:
+                            GlobalVars.StateIndicator = "IGUP";
+                            break;
+                        case 129:
+                            GlobalVars.StateIndicator = "IGP";
+                            break;
+                        case 44:
+                            GlobalVars.StateIndicator = "LS";
+                            break;
+                        case 57:
+                            GlobalVars.StateIndicator = "PGCR";
+                            break;
+                        default:
+                            GlobalVars.StateIndicator = "No"; //as in menu
+                            break;
+
+                            //255 == ingame and unpause
+                            //129 == ingame and paused
+                            //44 == loading screen
+                            //57 == on Post-Game Carnage Report
+                    }
+
+                }
+                else
+                {
+                    Console.WriteLine("failed to read menu indicator");
+                    return;
+                }
 
 
                 //neat, that's AttachedGame done. Now let's get the name of the currently loaded level ("AttachedLevel")
@@ -699,7 +748,7 @@ namespace HaloSpeedrunTools
                             holdstring = holdstring.Substring(holdstring.LastIndexOf("\\") + 1);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read h1 level: " + holdstring);
+                            //Console.WriteLine("read h1 level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -718,7 +767,7 @@ namespace HaloSpeedrunTools
                             holdstring = holdstring.Substring(holdstring.LastIndexOf("\\") + 1);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read h2 level: " + holdstring);
+                            //Console.WriteLine("read h2 level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -737,7 +786,7 @@ namespace HaloSpeedrunTools
                             holdstring = holdstring.Substring(holdstring.LastIndexOf("\\") + 1);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read h3 level: " + holdstring);
+                            //Console.WriteLine("read h3 level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -761,7 +810,7 @@ namespace HaloSpeedrunTools
                             // Console.WriteLine("Holdstring 3: " + holdstring);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read OD level: " + holdstring);
+                            //Console.WriteLine("read OD level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -779,7 +828,7 @@ namespace HaloSpeedrunTools
                             holdstring = holdstring.Substring(holdstring.LastIndexOf("\\") + 1);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read hr level: " + holdstring);
+                            //Console.WriteLine("read hr level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -799,7 +848,7 @@ namespace HaloSpeedrunTools
                             holdstring = holdstring.Substring(holdstring.LastIndexOf("\\") + 1);
                             char[] exceptions = new char[] { '_' };
                             holdstring = String.Concat(holdstring.Where(ch => Char.IsLetterOrDigit(ch) || exceptions?.Contains(ch) == true));
-                            Console.WriteLine("read H4 level: " + holdstring);
+                            //Console.WriteLine("read H4 level: " + holdstring);
                             GlobalVars.AttachedLevel = holdstring;
                         }
                         else
@@ -810,21 +859,133 @@ namespace HaloSpeedrunTools
                         break;
 
                 }
+        }
 
-                //let's set these ui values for funsies
-                gametext.Text = "Game: " + GlobalVars.AttachedGame;
-                leveltext.Text = "Levelcode: " + GlobalVars.AttachedLevel;
+            gametext.Text = "Game ID: " + GlobalVars.AttachedGame ?? "N/A";
+            levelText.Text = "Level: " + LevelCodeToName(GlobalVars.AttachedGame, GlobalVars.AttachedLevel) + "(" + GlobalVars.AttachedLevel + ")" ?? "N/A";
+            resetCounterText.Text = "ResetCounter: " + GlobalVars.ResetCounter;
 
+            stateText.Text = "StateIndicator: " + GlobalVars.StateIndicator;
+            tickText.Text = "Ticks: " + GlobalVars.CurrentTickCount;
+            igtText.Text = "IGT: " + GlobalVars.CurrentIGTs;
+
+            // Do OBS Things
+            bool recordILsOrNah = recordILBox.IsChecked ?? false;
+            bool saveIncomplete = saveIncompleteBox.IsChecked ?? false;
+            async Task doOBSThings()
+            {
+                if (GlobalVars.OBSConnected && recordILsOrNah)
+                {
+                    if (!obs.GetRecordingStatus().IsRecording)
+                    {
+                        if (GlobalVars.StateIndicator != "LS" && GlobalVars.StateIndicator != "PGCR" && GlobalVars.AttachedGame != "No" && GlobalVars.AttachedGame != "Mn" && GlobalVars.CurrentTickCount >= 0 && GlobalVars.CurrentIGTs < 120)
+                        {
+                            Console.WriteLine("Starting OBS Recording");
+                            obs.StartRecording();
+
+                            System.IO.Directory.CreateDirectory(obs.GetRecordingFolder() + "\\HST\\Incomplete");
+                        }
+                    }
+                    else
+                    {
+                        //Stop recording when run complete
+                        if (GlobalVars.StateIndicator == "PGCR")
+                        {
+                            string recordingFileName = obs.GetRecordingStatus().RecordingFilename;
+                            string getIGT()
+                            {
+                                switch (GlobalVars.AttachedGame)
+                                {
+                                    case "H2":
+                                        return GlobalVars.CurrentIGT;
+                                        break;
+                                    case "H3":
+                                        return GlobalVars.CurrentIGT;
+                                        break;
+                                    case "H4":
+                                        return GlobalVars.CurrentIGT;
+                                        break;
+                                    case "HR":
+                                        return GlobalVars.CurrentIGT;
+                                        break;
+                                    case "OD":
+                                        return GlobalVars.CurrentIGT;
+                                        break;
+                                    default:
+                                        return obs.GetRecordingStatus().RecordTimecode;
+                                        break;
+                                }
+                            }
+                            string finalTime = getIGT();
+                            string game = GlobalVars.AttachedGame;
+                            string level = GlobalVars.AttachedLevel;
+                            await Task.Delay(3000);
+                            Console.WriteLine("Run complete, Stopping OBS Recording");
+                            obs.StopRecording();
+
+                            await Task.Delay(500);
+
+                            Console.WriteLine(recordingFileName);
+                            string newName = System.IO.Path.GetDirectoryName(recordingFileName) + "\\HST\\" + LevelCodeToName(game, level) + " " + finalTime + System.IO.Path.GetExtension(recordingFileName);
+                            Console.WriteLine(newName);
+                            System.IO.File.Move(recordingFileName, newName);
+                        }
+                        //S&Q or other end case
+                        else if (GlobalVars.StateIndicator == "LS" || GlobalVars.AttachedGame == "No" || GlobalVars.AttachedGame == "Mn")
+                        {
+                            string recordingFileName = obs.GetRecordingStatus().RecordingFilename;
+                            string game = GlobalVars.AttachedGame;
+                            string level = GlobalVars.AttachedLevel;
+                            Console.WriteLine("User quit, Stopping OBS Recording");
+                            obs.StopRecording();
+
+                            await Task.Delay(500);
+                            if (saveIncomplete)
+                            {
+                                string newName = System.IO.Path.GetDirectoryName(recordingFileName) + "\\HST\\Incomplete\\" + LevelCodeToName(game, level) + " - " + System.IO.Path.GetFileName(recordingFileName);
+                                System.IO.File.Move(recordingFileName, newName);
+                            }
+                            else
+                            {
+                                File.Delete(recordingFileName);
+                            }
+                        }
+                        //Reset case
+                        else if (GlobalVars.CurrentTickCount >= 0 && GlobalVars.CurrentTickCount < 30 && GlobalVars.ResetCounter == 1)
+                        {
+                            GlobalVars.ResetCounter = 0;
+                            string recordingFileName = obs.GetRecordingStatus().RecordingFilename;
+                            string game = GlobalVars.AttachedGame;
+                            string level = GlobalVars.AttachedLevel;
+                            Console.WriteLine("User reset, Stopping OBS Recording");
+                            obs.StopRecording();
+
+                            await Task.Delay(500);
+                            if (saveIncomplete)
+                            {
+                                string newName = System.IO.Path.GetDirectoryName(recordingFileName) + "\\HST\\Incomplete\\" + LevelCodeToName(game, level) + " - " + System.IO.Path.GetFileName(recordingFileName);
+                                System.IO.File.Move(recordingFileName, newName);
+                            }
+                            else
+                            {
+                                File.Delete(recordingFileName);
+                            }
+                        } 
+                    }
+                }
             }
 
+            if (GlobalVars.CurrentIGTs >= 30)
+            {
+                GlobalVars.ResetCounter = 1;
+            }
 
 
             //Cool, we're actually done.
 
             //this is where we'll do our super frequent checking of MCC memory. explanations of how ReadProcessMemory works are in there.
             GetMCCValues();
-
-
+            doOBSThings();
 
         }
 
@@ -833,34 +994,15 @@ namespace HaloSpeedrunTools
 
         private void GetMCCValues()
         {
-
-
-
-
-
-            //for demonstration purposes, we'll just grab the current ingame tickcount for H1, and print a flag if the tickcount goes DOWN from one check to a next.  (eg level restart, or checkpoint revert)
-
-
-
-
-
-            //to keep track of what the tickcount was on the last time we checked, we're going to store it in a global variable, CurrentTickCount.
             int oldTickCount = GlobalVars.CurrentTickCount;
 
 
-            //now we need to get the current tickcount
+            //get current tick count
             switch (GlobalVars.AttachedGame)
             {
                 case "H1":
 
-                    //we could add a check here if we're validly attached to the game or not by reading a part of the games memory for the expected value.
-                    //I have a method, ValidCheck_H1(), that we could use for this. but I'll skip it for now since it might have a hella performance impact when mainloop runs super often.
-
-
-
-                    //we need to create a byte array of the correct length which we'll feed into readprocessmemory. 4 bytes in this case since tickcount is an int.
-                    byte[] buffer = new byte[4];
-                    //let's explain how readprocessmemory works
+                    byte[] buffer1 = new byte[4];
                     if (ReadProcessMemory //ReadProcessMemory returns true on successful read, false on a failure. 
                         (GlobalVars.GlobalProcessHandle, //need to pass it the ProcessHandle
                         FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H1_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]),
@@ -870,38 +1012,160 @@ namespace HaloSpeedrunTools
                         //depending whether we're attached to the steam version or winstore version. we use the winstoreflag to select between them. 
 
 
-                        buffer, //pass it our buffer to use
-                        buffer.Length, //tell it to only read the amount of memory corresponding to the length of our buffer
-                        out int bytesRead)) //count of how many bytes were read (not really necessary)
+                        buffer1, //pass it our buffer to use
+                        buffer1.Length, //tell it to only read the amount of memory corresponding to the length of our buffer
+                        out int bytesRead1)) //count of how many bytes were read (not really necessary)
                     {
                         //Sucess!
                         //now we can do some code if our readprocessmemory succeeded
-                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(buffer, 0);
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(buffer1, 0);
                     }
                     else
                     {
-                        //our readprocessmemory failed! this is a bad sign, we could throw an exception or whatever. 
-                        //in this case I'm just going to return out of our GetMCCValues function since the rest probably won't work either.
                         return;
                     }
 
                     break;
-
-
-                //could insert code for the other games here as required
+                case "H2":
+                    byte[] buffer2 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H2_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]),buffer2,buffer2.Length,out int bytesRead2))
+                    {
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(buffer2, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "H3":
+                    byte[] buffer3 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H3_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer3, buffer3.Length, out int bytesRead3))
+                    {
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(buffer3, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "H4":
+                    byte[] buffer4 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H4_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer4, buffer4.Length, out int bytesRead4))
+                    {
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(buffer4, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "HR":
+                    byte[] bufferR = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.HR_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]), bufferR, bufferR.Length, out int bytesReadR))
+                    {
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(bufferR, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "OD":
+                    byte[] bufferOD = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.OD_TickCounter[Convert.ToInt32(GlobalVars.WinStoreFlag)]), bufferOD, bufferOD.Length, out int bytesReadOD))
+                    {
+                        GlobalVars.CurrentTickCount = BitConverter.ToInt32(bufferOD, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
 
                 default:
-                    return; //not h1, let's bail
+                    return;
                     break;
 
             }
 
-            //cool, now we should have a current tickcount and previous tickcount, so to check if it's gone down (eg level restart, or checkpoint revert)
+            switch (GlobalVars.AttachedGame)
+            {
+                case "H2":
+                    byte[] buffer2 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H2_IGT[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer2, buffer2.Length, out int bytesRead2))
+                    {
+                        TimeSpan time = TimeSpan.FromSeconds(BitConverter.ToInt32(buffer2, 0) / 60);
+                        GlobalVars.CurrentIGT = time.ToString(@"mm\mss\s");
+                        GlobalVars.CurrentIGTs = BitConverter.ToInt32(buffer2, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "H3":
+                    byte[] buffer3 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H3_IGT[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer3, buffer3.Length, out int bytesRead3))
+                    {
+                        TimeSpan time = TimeSpan.FromSeconds(BitConverter.ToInt32(buffer3, 0) / 60);
+                        GlobalVars.CurrentIGT = time.ToString(@"mm\mss\s");
+                        GlobalVars.CurrentIGTs = BitConverter.ToInt32(buffer3, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "H4":
+                    byte[] buffer4 = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.H4_IGT[Convert.ToInt32(GlobalVars.WinStoreFlag)]), buffer4, buffer4.Length, out int bytesRead4))
+                    {
+                        TimeSpan time = TimeSpan.FromSeconds(BitConverter.ToInt32(buffer4, 0) / 60);
+                        GlobalVars.CurrentIGT = time.ToString(@"mm\mss\s");
+                        GlobalVars.CurrentIGTs = BitConverter.ToInt32(buffer4, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "HR":
+                    byte[] bufferR = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.HR_IGT[Convert.ToInt32(GlobalVars.WinStoreFlag)]), bufferR, bufferR.Length, out int bytesReadR))
+                    {
+                        TimeSpan time = TimeSpan.FromSeconds(BitConverter.ToInt32(bufferR, 0) / 60);
+                        GlobalVars.CurrentIGT = time.ToString(@"mm\mss\s");
+                        GlobalVars.CurrentIGTs = BitConverter.ToInt32(bufferR, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
+                case "OD":
+                    byte[] bufferOD = new byte[4];
+                    if (ReadProcessMemory(GlobalVars.GlobalProcessHandle, FindPointerAddy(GlobalVars.GlobalProcessHandle, GlobalVars.BaseAddress, GlobalVars.LoadedOffsets.OD_IGT[Convert.ToInt32(GlobalVars.WinStoreFlag)]), bufferOD, bufferOD.Length, out int bytesReadOD))
+                    {
+                        TimeSpan time = TimeSpan.FromSeconds(BitConverter.ToInt32(bufferOD, 0) / 60);
+                        GlobalVars.CurrentIGT = time.ToString(@"mm\mss\s");
+                        GlobalVars.CurrentIGTs = BitConverter.ToInt32(bufferOD, 0);
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    break;
 
-            if (oldTickCount > GlobalVars.CurrentTickCount)
+                default:
+                    return;
+                    break;
+
+            }
+
+          /*  if (oldTickCount > GlobalVars.CurrentTickCount)
             {
                 Console.WriteLine("YOU DID THE THING!!");
-            }
+            }*/
 
 
 
@@ -911,7 +1175,7 @@ namespace HaloSpeedrunTools
 
 
         }
-
+        /*
         private static bool ValidCheck_H1()
         {
 
@@ -939,16 +1203,7 @@ namespace HaloSpeedrunTools
                 return false;
             }
 
-        }
-
-
-
-
-
-
-
-
-        //these dictionaries aren't used anywhere in this stub program, but may be handy to you down the line. 
+        }*/
 
         readonly Dictionary<string, string> LevelCodeToNameH1 = new Dictionary<string, string>()
         { 
@@ -1215,11 +1470,6 @@ namespace HaloSpeedrunTools
 
         };
 
-        private void StartRecording_Click(object sender, RoutedEventArgs e)
-        {
-            obs.StartRecording();
-        }
-
         private void ConnectOBS_Click(object sender, RoutedEventArgs e)
         {
             this.Dispatcher.Invoke(() =>
@@ -1250,13 +1500,19 @@ namespace HaloSpeedrunTools
             }
         }
 
+        private void installOBSWS_Click(object sender, RoutedEventArgs e)
+        {
+            InstallWebsocket insows = new InstallWebsocket();
+            insows.Show();
+        }
+
         private void onConnect(object sender, EventArgs e)
         {
             this.Dispatcher.Invoke(() =>
             {
                 connectOBSButton.Content = "Connected!";
-                recordingButton.IsEnabled = true;
                 connectOBSButton.IsEnabled = false;
+                GlobalVars.OBSConnected = true;
             });
         }
 
@@ -1265,9 +1521,43 @@ namespace HaloSpeedrunTools
             this.Dispatcher.Invoke(() =>
             {
                 connectOBSButton.Content = "Connect to OBS";
-                recordingButton.IsEnabled = false;
                 connectOBSButton.IsEnabled = true;
+                GlobalVars.OBSConnected = false;
             });
+        }
+        private string LevelCodeToName(string gameCode, string levelCode)
+        {
+            switch (gameCode)
+            {
+                case "H1":
+                    LevelCodeToNameH1.TryGetValue(levelCode, out string Name1);
+                    return Name1;
+                    break;
+                case "H2":
+                    LevelCodeToNameH2.TryGetValue(levelCode, out string Name2);
+                    return Name2;
+                    break;
+                case "H3":
+                    LevelCodeToNameH3.TryGetValue(levelCode, out string Name3);
+                    return Name3;
+                    break;
+                case "H4":
+                    LevelCodeToNameH4.TryGetValue(levelCode, out string Name4);
+                    return Name4;
+                    break;
+                case "HR":
+                    LevelCodeToNameHR.TryGetValue(levelCode, out string Name5);
+                    return Name5;
+                    break;
+                case "OD":
+                    LevelCodeToNameOD.TryGetValue(levelCode, out string Name6);
+                    return Name6;
+                    break;
+                default:
+                    return null;
+                    break;
+
+            }
         }
     }
 }
